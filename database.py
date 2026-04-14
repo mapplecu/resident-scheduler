@@ -1,21 +1,26 @@
 import sqlite3
 import pandas as pd
 from typing import List, Dict
+import os
 
 DB_PATH = "scheduler.db"
 
 def init_db():
+    # Destroy and recreate the database to pick up schema changes cleanly.
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     # 1. Residents
     cursor.execute('''CREATE TABLE IF NOT EXISTS Residents (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT NOT NULL,
                         year_pgy INTEGER NOT NULL
                     )''')
-                    
-    # 2. Rotations
+
+    # 2. Rotations (stress 1-10; default 5)
     cursor.execute('''CREATE TABLE IF NOT EXISTS Rotations (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT NOT NULL,
@@ -24,15 +29,16 @@ def init_db():
                         min_interns INTEGER,
                         max_interns INTEGER,
                         min_seniors INTEGER,
-                        max_seniors INTEGER
+                        max_seniors INTEGER,
+                        stress INTEGER DEFAULT 5
                     )''')
-                    
+
     # 3. Electives
     cursor.execute('''CREATE TABLE IF NOT EXISTS Electives (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT NOT NULL
                     )''')
-                    
+
     # 4. Requests (Soft)
     cursor.execute('''CREATE TABLE IF NOT EXISTS Requests (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +47,7 @@ def init_db():
                         month INTEGER,
                         weight INTEGER
                     )''')
-                    
+
     # 5. Hard Blocks
     cursor.execute('''CREATE TABLE IF NOT EXISTS Hard_Blocks (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,7 +55,7 @@ def init_db():
                         rotation_name TEXT,
                         month INTEGER
                     )''')
-                    
+
     # 6. PGY Requirements
     cursor.execute('''CREATE TABLE IF NOT EXISTS Pgy_Requirements (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,14 +64,14 @@ def init_db():
                         min_months INTEGER,
                         max_months INTEGER
                     )''')
-                    
+
     # 7. Forbidden Adjacencies
     cursor.execute('''CREATE TABLE IF NOT EXISTS Forbidden_Adjacencies (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         rotation_1 TEXT,
                         rotation_2 TEXT
                     )''')
-                    
+
     conn.commit()
     conn.close()
 
@@ -101,23 +107,24 @@ def add_resident(name: str, year: int):
     conn.commit()
     conn.close()
 
-def add_rotation(name, min_tot, max_tot, min_int, max_int, min_sen, max_sen):
+def add_rotation(name, min_tot, max_tot, min_int, max_int, min_sen, max_sen, stress=5):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''INSERT INTO Rotations 
-                      (name, min_total, max_total, min_interns, max_interns, min_seniors, max_seniors) 
-                      VALUES (?, ?, ?, ?, ?, ?, ?)''', 
-                   (name, min_tot, max_tot, min_int, max_int, min_sen, max_sen))
+    cursor.execute('''INSERT INTO Rotations
+                      (name, min_total, max_total, min_interns, max_interns, min_seniors, max_seniors, stress)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                   (name, min_tot, max_tot, min_int, max_int, min_sen, max_sen, stress))
     conn.commit()
     conn.close()
 
-def update_rotation(row_id, name, min_tot, max_tot, min_int, max_int, min_sen, max_sen):
+def update_rotation(row_id, name, min_tot, max_tot, min_int, max_int, min_sen, max_sen, stress=5):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''UPDATE Rotations 
-                      SET name=?, min_total=?, max_total=?, min_interns=?, max_interns=?, min_seniors=?, max_seniors=?
-                      WHERE id=?''', 
-                   (name, min_tot, max_tot, min_int, max_int, min_sen, max_sen, row_id))
+    cursor.execute('''UPDATE Rotations
+                      SET name=?, min_total=?, max_total=?, min_interns=?, max_interns=?,
+                          min_seniors=?, max_seniors=?, stress=?
+                      WHERE id=?''',
+                   (name, min_tot, max_tot, min_int, max_int, min_sen, max_sen, stress, row_id))
     conn.commit()
     conn.close()
 
@@ -131,7 +138,7 @@ def add_elective(name):
 def add_request(res_name, rot_name, month, weight):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''INSERT INTO Requests (resident_name, rotation_name, month, weight) 
+    cursor.execute('''INSERT INTO Requests (resident_name, rotation_name, month, weight)
                       VALUES (?, ?, ?, ?)''', (res_name, rot_name, month, weight))
     conn.commit()
     conn.close()
@@ -139,7 +146,7 @@ def add_request(res_name, rot_name, month, weight):
 def add_hard_block(res_name, rot_name, month):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''INSERT INTO Hard_Blocks (resident_name, rotation_name, month) 
+    cursor.execute('''INSERT INTO Hard_Blocks (resident_name, rotation_name, month)
                       VALUES (?, ?, ?)''', (res_name, rot_name, month))
     conn.commit()
     conn.close()
@@ -147,7 +154,7 @@ def add_hard_block(res_name, rot_name, month):
 def add_pgy_requirement(pgy_level, rot_name, min_mo, max_mo):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''INSERT INTO Pgy_Requirements (pgy_level, rotation_name, min_months, max_months) 
+    cursor.execute('''INSERT INTO Pgy_Requirements (pgy_level, rotation_name, min_months, max_months)
                       VALUES (?, ?, ?, ?)''', (pgy_level, rot_name, min_mo, max_mo))
     conn.commit()
     conn.close()
@@ -155,7 +162,7 @@ def add_pgy_requirement(pgy_level, rot_name, min_mo, max_mo):
 def add_forbidden_adjacency(rot1, rot2):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''INSERT INTO Forbidden_Adjacencies (rotation_1, rotation_2) 
+    cursor.execute('''INSERT INTO Forbidden_Adjacencies (rotation_1, rotation_2)
                       VALUES (?, ?)''', (rot1, rot2))
     conn.commit()
     conn.close()
